@@ -2155,6 +2155,80 @@ class AppController:
         self.current_site.particles.append(p)
         return p
 
+    def synthesize_default_facet(
+        self,
+        particle: Particle,
+        shape_key: Optional[str] = None,
+        r_outer: Optional[float] = None,
+        is_placeholder: bool = True
+    ):
+        """
+        Creates a candidate / default facet geometry (polygon or ellipse) centered
+        on the particle. If is_placeholder is True, particle.top_facet_diameter and
+        particle.top_facet_area remain None so the table shows '-' until the user
+        interacts with the shape.
+        """
+        meta = self.current_site.metadata.get('MAIN', {}) if self.current_site else {}
+        px = float(meta.get('PixelSizeX', 1.0))
+        py = float(meta.get('PixelSizeY', 1.0))
+
+        if shape_key is None:
+            shape_idx = self.window.slider_facet_shape.value()
+            shape_mode = SHAPE_MODES[shape_idx] if 0 <= shape_idx < len(SHAPE_MODES) else SHAPE_MODES[0]
+            shape_key = getattr(particle, 'shape_type', None) or shape_mode["key"]
+
+        # Determine facet radius in pixels
+        if particle.top_facet_diameter is not None and particle.top_facet_diameter > 0:
+            r_facet_px = 0.5 * (particle.top_facet_diameter / px)
+        elif r_outer is not None and r_outer > 0:
+            r_facet_px = 0.5 * r_outer
+        elif particle.ellipse_bse and len(particle.ellipse_bse) >= 4:
+            r_facet_px = 0.5 * (0.5 * (particle.ellipse_bse[2] + particle.ellipse_bse[3]))
+        elif particle.ecd is not None and particle.ecd > 0:
+            r_facet_px = 0.5 * ((particle.ecd / px) * 0.5)
+        else:
+            r_facet_px = 25.0
+
+        cx = float(particle.pixel_x)
+        cy = float(particle.pixel_y)
+
+        particle.shape_type = shape_key
+
+        if shape_key == "ellipse":
+            particle.ellipse_se = [cx, cy, r_facet_px, r_facet_px, 0.0]
+            particle.facet_polygon = None
+            params = compute_facet_parameters_ellipse(
+                particle.ellipse_se, px, py, ellipse_bse=particle.ellipse_bse, is_manual=True
+            )
+        else:
+            n_sides_map = {
+                "triangle": 3,
+                "quadrilateral": 4,
+                "pentagon": 5,
+                "hexagon": 6,
+                "polygon_6": 6,
+                "polygon_8": 8
+            }
+            n_sides = n_sides_map.get(shape_key, 6)
+            angles = [k * 2.0 * np.pi / n_sides for k in range(n_sides)]
+            corners_px = [[float(cx + r_facet_px * np.cos(a)), float(cy + r_facet_px * np.sin(a))] for a in angles]
+            particle.facet_polygon = corners_px
+            particle.ellipse_se = None
+            params = compute_facet_parameters(
+                corners_px, px, py, shape_type=shape_key, ellipse_bse=particle.ellipse_bse, is_manual=True
+            )
+
+        particle.facet_parameters = params
+
+        if is_placeholder:
+            particle.top_facet_diameter = None
+            particle.top_facet_area = None
+            particle.is_manually_fitted = False
+        else:
+            particle.top_facet_diameter = params['diameter_m']
+            particle.top_facet_area = params['area_m2']
+            particle.is_manually_fitted = True
+
     def on_search_radius_slider_changed(self, value):
         radius_um = value / 10.0
         self.window.lbl_search_radius_val.setText(f"{radius_um:.1f} µm")
@@ -2163,6 +2237,14 @@ class AppController:
         if 0 <= value < len(SHAPE_MODES):
             mode = SHAPE_MODES[value]
             self.window.lbl_facet_shape_val.setText(mode["name"])
+            if self.active_particle_id is not None and self.current_site:
+                p = self.get_particle_by_id(self.active_particle_id)
+                if p and p.shape_type != mode["key"]:
+                    is_placeholder = (p.top_facet_diameter is None)
+                    self.synthesize_default_facet(p, shape_key=mode["key"], is_placeholder=is_placeholder)
+                    self.clear_active_facet_roi()
+                    self.update_active_facet_roi(p)
+                    self.populate_particle_table()
 
     def get_signal_indices(self) -> Tuple[Optional[int], Optional[int]]:
         meta_sem = self.current_site.metadata.get('SEM', {}) if self.current_site else {}
@@ -2296,7 +2378,14 @@ class AppController:
                     drag_hint = "(Drag any corner freely; other corners stay fixed)"
             msg = f"Particle #{particle.id}: ECD = {res_bse['diameter_m']*1e9:.1f} nm | Facet ({shape_mode['name']}) = {res_facet['diameter_m']*1e9:.1f} nm {drag_hint}"
         else:
-            msg = f"Particle #{particle.id}: ECD = {res_bse['diameter_m']*1e9:.1f} nm (Facet fit inconclusive for {shape_mode['name']})"
+            self.synthesize_default_facet(particle, shape_key=shape_key, r_outer=r_outer, is_placeholder=True)
+            if shape_key == "ellipse":
+                drag_hint = "(Drag axes to scale, rotate handle to rotate)"
+            elif shape_key == "hexagon":
+                drag_hint = "(Drag corner: scale/rotate, Shift+Drag: extend face)"
+            else:
+                drag_hint = "(Drag any corner freely; other corners stay fixed)"
+            msg = f"Particle #{particle.id}: ECD = {res_bse['diameter_m']*1e9:.1f} nm | Facet inconclusive for {shape_mode['name']} -> Red placeholder placed {drag_hint}"
 
         self.is_dirty = True
         self.populate_particle_table()
@@ -2441,30 +2530,37 @@ class AppController:
             facet_is_ellipse = False
 
         if not res:
-            QMessageBox.warning(self.window, "Measurement Failed", f"Could not fit {shape_mode['name']} facet on SE signal.")
-            return
-
-        particle.shape_type = shape_key
-        particle.top_facet_diameter = res['diameter_m']
-        particle.top_facet_area = res['area_m2']
-        particle.is_manually_fitted = False
-        if facet_is_ellipse:
-            particle.ellipse_se = res['ellipse_params']
-            particle.facet_polygon = None
-            particle.facet_parameters = compute_facet_parameters_ellipse(
-                res['ellipse_params'], px, py, ellipse_bse=particle.ellipse_bse, is_manual=False
-            )
-            drag_hint = "(Drag axes to scale, rotate handle to rotate)"
-        else:
-            particle.facet_polygon = res['corners']
-            particle.ellipse_se = None
-            particle.facet_parameters = compute_facet_parameters(
-                res['corners'], px, py, shape_type=shape_key, ellipse_bse=particle.ellipse_bse, is_manual=False
-            )
-            if shape_key == "hexagon":
+            self.synthesize_default_facet(particle, shape_key=shape_key, r_outer=r_outer, is_placeholder=True)
+            if shape_key == "ellipse":
+                drag_hint = "(Drag axes to scale, rotate handle to rotate)"
+            elif shape_key == "hexagon":
                 drag_hint = "(Drag corner: scale/rotate, Shift+Drag: extend face)"
             else:
                 drag_hint = "(Drag any corner freely; other corners stay fixed)"
+            msg = f"Particle #{particle.id}: Auto-fit inconclusive for {shape_mode['name']}. Red placeholder placed — drag handles to set size {drag_hint}"
+        else:
+            particle.shape_type = shape_key
+            particle.top_facet_diameter = res['diameter_m']
+            particle.top_facet_area = res['area_m2']
+            particle.is_manually_fitted = False
+            if facet_is_ellipse:
+                particle.ellipse_se = res['ellipse_params']
+                particle.facet_polygon = None
+                particle.facet_parameters = compute_facet_parameters_ellipse(
+                    res['ellipse_params'], px, py, ellipse_bse=particle.ellipse_bse, is_manual=False
+                )
+                drag_hint = "(Drag axes to scale, rotate handle to rotate)"
+            else:
+                particle.facet_polygon = res['corners']
+                particle.ellipse_se = None
+                particle.facet_parameters = compute_facet_parameters(
+                    res['corners'], px, py, shape_type=shape_key, ellipse_bse=particle.ellipse_bse, is_manual=False
+                )
+                if shape_key == "hexagon":
+                    drag_hint = "(Drag corner: scale/rotate, Shift+Drag: extend face)"
+                else:
+                    drag_hint = "(Drag any corner freely; other corners stay fixed)"
+            msg = f"Particle #{particle.id}: Facet ({shape_mode['name']}) = {res['diameter_m']*1e9:.1f} nm {drag_hint}"
 
         self.is_dirty = True
         self.populate_particle_table()
@@ -2527,13 +2623,16 @@ class AppController:
                 pass
             elif p.facet_polygon:
                 xp, yp = get_polygon_points(p.facet_polygon, px, py)
-                curve = pg.PlotCurveItem(xp, yp, pen=pg.mkPen(color='#FFD600', width=2, style=Qt.SolidLine))
+                pen_color = '#FF1744' if p.top_facet_diameter is None else '#FFD600'
+                pen_style = Qt.DashLine if p.top_facet_diameter is None else Qt.SolidLine
+                curve = pg.PlotCurveItem(xp, yp, pen=pg.mkPen(color=pen_color, width=2, style=pen_style))
                 self.window.site_plot.addItem(curve)
                 self.particle_plot_items.append(curve)
             elif p.ellipse_se:
                 cx, cy, a, b, theta = p.ellipse_se
                 xp, yp = get_ellipse_points(cx, cy, a, b, theta, px, py)
-                curve = pg.PlotCurveItem(xp, yp, pen=pg.mkPen(color='#FFD600', width=2, style=Qt.DashLine))
+                pen_color = '#FF1744' if p.top_facet_diameter is None else '#FFD600'
+                curve = pg.PlotCurveItem(xp, yp, pen=pg.mkPen(color=pen_color, width=2, style=Qt.DashLine))
                 self.window.site_plot.addItem(curve)
                 self.particle_plot_items.append(curve)
                 
@@ -2582,8 +2681,11 @@ class AppController:
             self.selected_particle_center_px = (p.pixel_x, p.pixel_y)
             self.draw_particle_center_marker(p.pixel_x * px, p.pixel_y * py)
             ecd_str = f"{p.ecd*1e9:.1f} nm" if p.ecd else "N/A"
-            se_str = f"{p.top_facet_diameter*1e9:.1f} nm" if p.top_facet_diameter else "N/A"
-            self.window.lbl_measure_hint.setText(f"Particle #{p.id} selected | ECD: {ecd_str} | Top: {se_str}")
+            if p.top_facet_diameter is not None:
+                se_str = f"{p.top_facet_diameter*1e9:.1f} nm"
+                self.window.lbl_measure_hint.setText(f"Particle #{p.id} selected | ECD: {ecd_str} | Top: {se_str}")
+            else:
+                self.window.lbl_measure_hint.setText(f"Particle #{p.id} selected | ECD: {ecd_str} | Top: - (Red placeholder: drag to set manual size)")
             self.update_active_facet_roi(p)
 
     def get_particle_by_id(self, p_id: int) -> Optional[Particle]:
@@ -2604,10 +2706,14 @@ class AppController:
         self.active_particle_id = None
 
     def update_active_facet_roi(self, particle: Optional[Particle]):
-        if not self.current_site or particle is None or (not particle.facet_polygon and not particle.ellipse_se):
+        if not self.current_site or particle is None:
             self.clear_active_facet_roi()
             self.redraw_particle_overlays()
             return
+
+        if not particle.facet_polygon and not particle.ellipse_se:
+            self.synthesize_default_facet(particle, is_placeholder=True)
+            self.populate_particle_table()
             
         if self.active_particle_id == particle.id and self.active_facet_roi is not None:
             return
@@ -2647,6 +2753,11 @@ class AppController:
         p = self.get_particle_by_id(self.active_particle_id)
         if not p:
             return
+
+        # Turn yellow as soon as user starts interacting
+        if getattr(roi, 'is_placeholder', False):
+            roi.set_placeholder(False)
+
         d_m, a_m2 = roi.get_equivalent_diameter_and_area()
         p_shape = getattr(p, "shape_type", "hexagon")
         if p_shape == "hexagon":
@@ -2660,7 +2771,7 @@ class AppController:
         else:
             hint = "Drag any corner freely (other corners stay fixed) | Drag body to move"
         self.window.lbl_measure_hint.setText(
-            f"Fine-fitting Particle #{p.id} ({p_shape}): Facet = {d_m*1e9:.1f} nm | Area = {a_m2*1e12:.4f} µm² ({hint})"
+            f"Manual Facet Particle #{p.id} ({p_shape}): Facet = {d_m*1e9:.1f} nm | Area = {a_m2*1e12:.4f} µm² ({hint})"
         )
 
     def on_facet_roi_change_finished(self, roi):
@@ -2669,6 +2780,9 @@ class AppController:
         p = self.get_particle_by_id(self.active_particle_id)
         if not p:
             return
+
+        if getattr(roi, 'is_placeholder', False):
+            roi.set_placeholder(False)
             
         meta = self.current_site.metadata.get('MAIN', {})
         px = float(meta.get('PixelSizeX', 1.0))

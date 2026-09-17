@@ -215,6 +215,7 @@ class GeneralPolygonROI(pg.ROI):
     def __init__(self, corners: List[List[float]], **kwargs):
         super().__init__([0, 0], [1, 1], **kwargs)
         self.translatable = True
+        self.is_placeholder = False
         
         self.setPen(pg.mkPen(color='#FFD600', width=2))
         self.handlePen = pg.mkPen(color='#FFD600', width=1.5)
@@ -224,6 +225,19 @@ class GeneralPolygonROI(pg.ROI):
         for k in range(len(corners)):
             pt = QtCore.QPointF(corners[k][0], corners[k][1])
             self.addFreeHandle(pt, name=f'corner_{k}')
+
+    def set_placeholder(self, placeholder: bool):
+        self.is_placeholder = bool(placeholder)
+        color = '#FF1744' if self.is_placeholder else '#FFD600'
+        style = QtCore.Qt.PenStyle.DashLine if self.is_placeholder else QtCore.Qt.PenStyle.SolidLine
+        self.setPen(pg.mkPen(color=color, width=2, style=style))
+        self.handlePen = pg.mkPen(color=color, width=1.5)
+        for h in self.handles:
+            item = h['item']
+            item.pen = self.handlePen
+            item.currentPen = self.handlePen
+            item.update()
+        self.update()
 
     def shape(self) -> QtGui.QPainterPath:
         p = QtGui.QPainterPath()
@@ -238,7 +252,8 @@ class GeneralPolygonROI(pg.ROI):
     def paint(self, p: QtGui.QPainter, opt: QtWidgets.QStyleOptionGraphicsItem, widget: QtWidgets.QWidget):
         p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         p.setPen(self.currentPen)
-        p.setBrush(QtGui.QBrush(QtGui.QColor(255, 214, 0, 30)))
+        fill_color = QtGui.QColor(255, 23, 68, 35) if getattr(self, 'is_placeholder', False) else QtGui.QColor(255, 214, 0, 30)
+        p.setBrush(QtGui.QBrush(fill_color))
         p.drawPath(self.shape())
 
     def get_hexagon_corners(self) -> List[List[float]]:
@@ -279,6 +294,7 @@ class EllipseFacetROI(pg.ROI):
         size = [2.0 * rx, 2.0 * ry]
         super().__init__(pos, size, **kwargs)
         self.setAngle(angle, center=[0.5, 0.5])
+        self.is_placeholder = False
         
         self.setPen(pg.mkPen(color='#FFD600', width=2))
         self.handlePen = pg.mkPen(color='#FFD600', width=1.5)
@@ -291,10 +307,24 @@ class EllipseFacetROI(pg.ROI):
         # Rotate handle at corner
         self.addRotateHandle([1.0, 0.0], [0.5, 0.5], name='rotate')
 
+    def set_placeholder(self, placeholder: bool):
+        self.is_placeholder = bool(placeholder)
+        color = '#FF1744' if self.is_placeholder else '#FFD600'
+        style = QtCore.Qt.PenStyle.DashLine if self.is_placeholder else QtCore.Qt.PenStyle.SolidLine
+        self.setPen(pg.mkPen(color=color, width=2, style=style))
+        self.handlePen = pg.mkPen(color=color, width=1.5)
+        for h in self.handles:
+            item = h['item']
+            item.pen = self.handlePen
+            item.currentPen = self.handlePen
+            item.update()
+        self.update()
+
     def paint(self, p: QtGui.QPainter, opt: QtWidgets.QStyleOptionGraphicsItem, widget: QtWidgets.QWidget):
         p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         p.setPen(self.currentPen)
-        p.setBrush(QtGui.QBrush(QtGui.QColor(255, 214, 0, 30)))
+        fill_color = QtGui.QColor(255, 23, 68, 35) if getattr(self, 'is_placeholder', False) else QtGui.QColor(255, 214, 0, 30)
+        p.setBrush(QtGui.QBrush(fill_color))
         r = QtCore.QRectF(0, 0, self.state['size'][0], self.state['size'][1])
         p.drawEllipse(r)
 
@@ -361,6 +391,7 @@ class HexagonFacetROI(pg.ROI):
         self.translatable = True
         self.resizable = False
         self.rotatable = False
+        self.is_placeholder = False
         
         self.setPen(pg.mkPen(color='#FFD600', width=2))
         self.handlePen = pg.mkPen(color='#FFD600', width=1.5)
@@ -390,6 +421,19 @@ class HexagonFacetROI(pg.ROI):
             pt = QtCore.QPointF(init_corners[k, 0], init_corners[k, 1])
             self.addFreeHandle(pt, name=f'corner_{k}')
 
+    def set_placeholder(self, placeholder: bool):
+        self.is_placeholder = bool(placeholder)
+        color = '#FF1744' if self.is_placeholder else '#FFD600'
+        style = QtCore.Qt.PenStyle.DashLine if self.is_placeholder else QtCore.Qt.PenStyle.SolidLine
+        self.setPen(pg.mkPen(color=color, width=2, style=style))
+        self.handlePen = pg.mkPen(color=color, width=1.5)
+        for h in self.handles:
+            item = h['item']
+            item.pen = self.handlePen
+            item.currentPen = self.handlePen
+            item.update()
+        self.update()
+
     def shape(self) -> QtGui.QPainterPath:
         p = QtGui.QPainterPath()
         if len(self.handles) < 6:
@@ -403,7 +447,8 @@ class HexagonFacetROI(pg.ROI):
     def paint(self, p: QtGui.QPainter, opt: QtWidgets.QStyleOptionGraphicsItem, widget: QtWidgets.QWidget):
         p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         p.setPen(self.currentPen)
-        p.setBrush(QtGui.QBrush(QtGui.QColor(255, 214, 0, 30)))
+        fill_color = QtGui.QColor(255, 23, 68, 35) if getattr(self, 'is_placeholder', False) else QtGui.QColor(255, 214, 0, 30)
+        p.setBrush(QtGui.QBrush(fill_color))
         p.drawPath(self.shape())
         
         # Highlight active dragged edge during Shift+drag
@@ -659,22 +704,27 @@ def create_roi_for_particle(
     """
     Factory function creating the appropriate interactive ROI for the particle
     based on its shape_type (HexagonFacetROI, GeneralPolygonROI, or EllipseFacetROI).
+    Includes universal fallbacks so an interactive ROI is always available for manual adjustment.
+    Automatically initializes placeholder state (red dashed outline) if top_facet_diameter is None.
     """
     st = getattr(particle, 'shape_type', 'hexagon') or 'hexagon'
     px = float(pixel_size_x)
     py = float(pixel_size_y)
+    roi = None
     
     if st == 'ellipse':
         if particle.ellipse_se and len(particle.ellipse_se) >= 5:
             cx, cy, a, b, theta = particle.ellipse_se
-            return EllipseFacetROI(cx * px, cy * py, a * px, b * py, angle=float(np.degrees(theta)))
+            roi = EllipseFacetROI(cx * px, cy * py, a * px, b * py, angle=float(np.degrees(theta)))
         elif particle.top_facet_diameter:
             r = 0.5 * particle.top_facet_diameter
-            return EllipseFacetROI(particle.pixel_x * px, particle.pixel_y * py, r, r, angle=0.0)
+            roi = EllipseFacetROI(particle.pixel_x * px, particle.pixel_y * py, r, r, angle=0.0)
         elif particle.ecd:
             r = 0.5 * (particle.ecd * 0.6)
-            return EllipseFacetROI(particle.pixel_x * px, particle.pixel_y * py, r, r, angle=0.0)
-        return None
+            roi = EllipseFacetROI(particle.pixel_x * px, particle.pixel_y * py, r, r, angle=0.0)
+        else:
+            r = 25.0 * px
+            roi = EllipseFacetROI(particle.pixel_x * px, particle.pixel_y * py, r, r, angle=0.0)
 
     elif st == 'hexagon':
         if particle.facet_polygon and len(particle.facet_polygon) == 6:
@@ -683,14 +733,16 @@ def create_roi_for_particle(
                 [float(corners_px[k, 0] * px), float(corners_px[k, 1] * py)]
                 for k in range(6)
             ]
-            return HexagonFacetROI(corners=corners_m)
+            roi = HexagonFacetROI(corners=corners_m)
         elif particle.top_facet_diameter:
             r = 0.5 * particle.top_facet_diameter
-            return HexagonFacetROI(cx=particle.pixel_x * px, cy=particle.pixel_y * py, radius=r, angle=0.0)
+            roi = HexagonFacetROI(cx=particle.pixel_x * px, cy=particle.pixel_y * py, radius=r, angle=0.0)
         elif particle.ecd:
             r = 0.5 * (particle.ecd * 0.6)
-            return HexagonFacetROI(cx=particle.pixel_x * px, cy=particle.pixel_y * py, radius=r, angle=0.0)
-        return None
+            roi = HexagonFacetROI(cx=particle.pixel_x * px, cy=particle.pixel_y * py, radius=r, angle=0.0)
+        else:
+            r = 25.0 * px
+            roi = HexagonFacetROI(cx=particle.pixel_x * px, cy=particle.pixel_y * py, radius=r, angle=0.0)
 
     else:
         # General polygon (triangle, quadrilateral, pentagon, polygon_6, polygon_8)
@@ -700,8 +752,34 @@ def create_roi_for_particle(
                 [float(corners_px[k, 0] * px), float(corners_px[k, 1] * py)]
                 for k in range(len(corners_px))
             ]
-            return GeneralPolygonROI(corners=corners_m)
-        return None
+            roi = GeneralPolygonROI(corners=corners_m)
+        else:
+            n_sides_map = {
+                'triangle': 3,
+                'quadrilateral': 4,
+                'pentagon': 5,
+                'polygon_6': 6,
+                'polygon_8': 8
+            }
+            n_sides = n_sides_map.get(st, 6)
+            if particle.top_facet_diameter:
+                r = 0.5 * particle.top_facet_diameter
+            elif particle.ecd:
+                r = 0.5 * (particle.ecd * 0.6)
+            else:
+                r = 25.0 * px
+            cx_m = particle.pixel_x * px
+            cy_m = particle.pixel_y * py
+            angles = [k * 2.0 * np.pi / n_sides for k in range(n_sides)]
+            corners_m = [[cx_m + r * np.cos(a), cy_m + r * np.sin(a)] for a in angles]
+            roi = GeneralPolygonROI(corners=corners_m)
+
+    if roi is not None:
+        is_placeholder = (particle.top_facet_diameter is None)
+        if hasattr(roi, 'set_placeholder'):
+            roi.set_placeholder(is_placeholder)
+
+    return roi
 
 
 # Backward-compatibility alias
