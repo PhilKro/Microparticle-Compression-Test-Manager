@@ -133,6 +133,12 @@ class AppController:
         self.comp_calibration: Optional[CalibrationResult] = None
         self.comp_cumulative_dx: float = 0.0
         self.comp_cumulative_dy: float = 0.0
+        self.comp_region_cached_img = None
+        self.comp_region_cached_filename: Optional[str] = None
+        self.comp_region_w: Optional[int] = None
+        self.comp_region_h: Optional[int] = None
+        self.comp_site_cached_img = None
+        self.comp_site_cached_filename: Optional[str] = None
 
         self.setup_connections()
         self.window.closeEvent = self.on_close
@@ -1140,7 +1146,29 @@ class AppController:
         self.window.combo_comp_next.blockSignals(False)
 
     def populate_compression_particles(self):
-        self.comp_particles = extract_all_particles(self.sample)
+        reg_w, reg_h = 2048, 2048
+        if hasattr(self, 'current_region_signals') and self.current_region_signals:
+            reg_h, reg_w = self.current_region_signals[0].shape[:2]
+            self.comp_region_w, self.comp_region_h = reg_w, reg_h
+        elif self.comp_region_w is not None and self.comp_region_h is not None:
+            reg_w, reg_h = self.comp_region_w, self.comp_region_h
+        else:
+            region = next((r for r in self.sample.images if r.classification == ImageType.REGION), None)
+            if region and self.sample_dir:
+                tif_path = os.path.join(self.sample_dir, region.filename)
+                if os.path.exists(tif_path):
+                    try:
+                        img = read_sem_tiff(tif_path)
+                        meta_reg = region.metadata.get('MAIN', {})
+                        n_sig = int(meta_reg.get('ViewFieldsCountX', 1))
+                        strip = int(meta_reg.get('ImageStripSize', 0))
+                        if strip > 0 and img.shape[0] > strip:
+                            img = img[:-strip, :]
+                        reg_h, reg_w = img.shape[0], img.shape[1] // n_sig
+                        self.comp_region_w, self.comp_region_h = reg_w, reg_h
+                    except Exception:
+                        pass
+        self.comp_particles = extract_all_particles(self.sample, reg_w=reg_w, reg_h=reg_h)
         if self.comp_session_data:
             for t in self.comp_session_data.tests:
                 if t.particle_uid in self.comp_particles:
@@ -1261,11 +1289,11 @@ class AppController:
 
         self.window.lbl_comp_tested_count.setText(f"Tested: {tested_count} / {total_count}")
 
-    def update_comp_plots(self):
-        self.update_comp_region_plot()
-        self.update_comp_site_plot()
+    def update_comp_plots(self, force_reload_image: bool = False):
+        self.update_comp_region_plot(force_reload_image=force_reload_image)
+        self.update_comp_site_plot(force_reload_image=force_reload_image)
 
-    def update_comp_region_plot(self):
+    def update_comp_region_plot(self, force_reload_image: bool = False):
         if not self.sample:
             return
         region = next((r for r in self.sample.images if r.classification == ImageType.REGION), None)
@@ -1279,28 +1307,36 @@ class AppController:
         n_sig = int(meta_reg.get('ViewFieldsCountX', 1))
         strip = int(meta_reg.get('ImageStripSize', 0))
 
-        # Always extract the SE detector channel (never BSE)
-        tif_path = os.path.join(self.sample_dir, region.filename)
-        if os.path.exists(tif_path):
-            img = read_sem_tiff(tif_path)
-            if strip > 0 and img.shape[0] > strip:
-                img = img[:-strip, :]
-            w = img.shape[1] // n_sig
-            se_idx = 0
-            for i in range(n_sig):
-                det = meta_sem.get(f'Detector{i}', '')
-                if 'SE' in det.upper() and 'BSE' not in det.upper():
-                    se_idx = i
-                    break
-            se_img = img[:, se_idx*w:(se_idx+1)*w]
-            H, W = se_img.shape[:2]
-            self.window.comp_region_image_item.setImage(se_img, autoLevels=False)
+        # Check if region image is already cached in memory
+        need_load = (
+            force_reload_image
+            or self.comp_region_cached_img is None
+            or self.comp_region_cached_filename != region.filename
+        )
+        if need_load:
+            tif_path = os.path.join(self.sample_dir, region.filename)
+            if os.path.exists(tif_path):
+                img = read_sem_tiff(tif_path)
+                if strip > 0 and img.shape[0] > strip:
+                    img = img[:-strip, :]
+                w = img.shape[1] // n_sig
+                se_idx = 0
+                for i in range(n_sig):
+                    det = meta_sem.get(f'Detector{i}', '')
+                    if 'SE' in det.upper() and 'BSE' not in det.upper():
+                        se_idx = i
+                        break
+                se_img = img[:, se_idx*w:(se_idx+1)*w]
+                H, W = se_img.shape[:2]
+                self.comp_region_cached_img = se_img
+                self.comp_region_cached_filename = region.filename
+                self.comp_region_w = W
+                self.comp_region_h = H
+                self.window.comp_region_image_item.setImage(se_img, autoLevels=False)
 
-            # Center coordinates in physical meters
-            cx = W * px_reg / 2.0
-            cy = H * py_reg / 2.0
-
-            # Scale and tilt transform: scales pixels to meters, rotates and foreshortens around (cx, cy)
+        if self.comp_region_w is not None and self.comp_region_h is not None:
+            cx = self.comp_region_w * px_reg / 2.0
+            cy = self.comp_region_h * py_reg / 2.0
             tr = get_tilt_transform(cx, cy, self.comp_tilt_deg, self.comp_rot_deg, px_reg, py_reg)
             self.window.comp_region_image_item.setTransform(tr)
         else:
@@ -1395,7 +1431,7 @@ class AppController:
                 self.window.comp_region_plot.addItem(tour_line)
                 self.comp_region_marker_items.append(tour_line)
 
-    def update_comp_site_plot(self):
+    def update_comp_site_plot(self, force_reload_image: bool = False):
         for item in self.comp_site_marker_items:
             try: self.window.comp_site_plot.removeItem(item)
             except Exception: pass
@@ -1414,33 +1450,38 @@ class AppController:
         if not site_record:
             return
 
-        tif_path = os.path.join(self.sample_dir, site_record.filename)
-        if not os.path.exists(tif_path):
-            return
-
-        img = read_sem_tiff(tif_path)
         meta_main = site_record.metadata.get('MAIN', {})
         meta_sem = site_record.metadata.get('SEM', {})
-        n_sig = int(meta_main.get('ViewFieldsCountX', 1))
-        strip = int(meta_main.get('ImageStripSize', 0))
         px = float(meta_main.get('PixelSizeX', 1.0))
         py = float(meta_main.get('PixelSizeY', 1.0))
 
-        if strip > 0 and img.shape[0] > strip:
-            img = img[:-strip, :]
-        H, W = img.shape[:2]
-        w = W // n_sig
-
-        # SE Signal only (Detector0, NOT BSE)
-        se_idx = 0
-        for i in range(n_sig):
-            det = meta_sem.get(f'Detector{i}', '')
-            if 'SE' in det.upper() and 'BSE' not in det.upper():
-                se_idx = i
-                break
-        site_signal = img[:, se_idx*w:(se_idx+1)*w]
-
-        self.window.comp_site_image_item.setImage(site_signal, autoLevels=False)
+        # Check if site image is already cached in memory
+        need_load_site = (
+            force_reload_image
+            or self.comp_site_cached_img is None
+            or self.comp_site_cached_filename != site_record.filename
+        )
+        if need_load_site:
+            tif_path = os.path.join(self.sample_dir, site_record.filename)
+            if not os.path.exists(tif_path):
+                return
+            img = read_sem_tiff(tif_path)
+            n_sig = int(meta_main.get('ViewFieldsCountX', 1))
+            strip = int(meta_main.get('ImageStripSize', 0))
+            if strip > 0 and img.shape[0] > strip:
+                img = img[:-strip, :]
+            H, W = img.shape[:2]
+            w = W // n_sig
+            se_idx = 0
+            for i in range(n_sig):
+                det = meta_sem.get(f'Detector{i}', '')
+                if 'SE' in det.upper() and 'BSE' not in det.upper():
+                    se_idx = i
+                    break
+            site_signal = img[:, se_idx*w:(se_idx+1)*w]
+            self.comp_site_cached_img = site_signal
+            self.comp_site_cached_filename = site_record.filename
+            self.window.comp_site_image_item.setImage(site_signal, autoLevels=False)
 
         # Center tilt and rotation around active particle
         cx_site = p_info.particle.pixel_x * px
@@ -1625,6 +1666,32 @@ class AppController:
         self.window.spin_comp_act_dx.blockSignals(False)
         self.window.spin_comp_act_dy.blockSignals(False)
 
+        # Warn if either site's alignment was unrefined in Region View
+        curr_unref = not getattr(p_curr, 'site_is_refined', True)
+        next_unref = not getattr(p_next, 'site_is_refined', True)
+        if curr_unref or next_unref:
+            unref_list = []
+            if curr_unref: unref_list.append(f"Site {p_curr.site_number}")
+            if next_unref and p_next.site_number != p_curr.site_number: unref_list.append(f"Site {p_next.site_number}")
+            unref_str = " & ".join(unref_list)
+            self.window.lbl_comp_refine_status.setText(
+                f"⚠️ WARNING: {unref_str} alignment unrefined in Region View! Suggested stage translation has high uncertainty."
+            )
+            self.window.lbl_comp_refine_status.setStyleSheet(
+                "font-size: 11px; color: #b45309; font-weight: bold; background-color: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; padding: 4px 6px;"
+            )
+            self.window.card_smaract.setStyleSheet(
+                "QFrame { background-color: #fffbeb; border: 2px solid #d97706; border-radius: 6px; padding: 8px; }"
+            )
+        else:
+            self.window.lbl_comp_refine_status.setText("Actual translation will refine orientation automatically on Enter.")
+            self.window.lbl_comp_refine_status.setStyleSheet(
+                "font-size: 11px; color: #666; font-style: italic; background-color: transparent; border: none; padding: 0px;"
+            )
+            self.window.card_smaract.setStyleSheet(
+                "QFrame { background-color: #f8fafc; border: 1px solid #0078D7; border-radius: 6px; padding: 8px; }"
+            )
+
     def set_comp_mode(self, mode: str):
         self.comp_mode = mode
         if mode == "test":
@@ -1786,10 +1853,20 @@ class AppController:
         act_dx = self.window.spin_comp_act_dx.value()
         act_dy = self.window.spin_comp_act_dy.value()
 
-        # Automatic Robust Bayesian alignment & scale refinement (RB-PSE)
-        flat_vec = (p_next.flat_x_um - p_curr.flat_x_um, p_next.flat_y_um - p_curr.flat_y_um)
-        actual_vec = (act_dx, act_dy)
-        if math.hypot(act_dx, act_dy) > 1e-4:
+        # Check if move involves unrefined sites; if so, ignore for orientation/scale calibration
+        curr_unref = not getattr(p_curr, 'site_is_refined', True)
+        next_unref = not getattr(p_next, 'site_is_refined', True)
+
+        if curr_unref or next_unref:
+            unref_name = f"Site {p_curr.site_number}" if curr_unref else f"Site {p_next.site_number}"
+            print(f"Move involves unrefined {unref_name}: ignoring for orientation & scale calibration.")
+            self.window.lbl_comp_refine_status.setText(
+                f"Move logged, but excluded from calibration ({unref_name} alignment is unrefined)."
+            )
+        elif math.hypot(act_dx, act_dy) > 1e-4:
+            # Automatic Robust Bayesian alignment & scale refinement (RB-PSE)
+            flat_vec = (p_next.flat_x_um - p_curr.flat_x_um, p_next.flat_y_um - p_curr.flat_y_um)
+            actual_vec = (act_dx, act_dy)
             self.comp_actual_history.append((flat_vec, actual_vec))
             flats = [h[0] for h in self.comp_actual_history]
             acts = [h[1] for h in self.comp_actual_history]

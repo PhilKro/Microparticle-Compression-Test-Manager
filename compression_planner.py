@@ -23,6 +23,8 @@ class ParticleGlobalInfo:
     site_top_left_y_m: float
     pixel_size_x: float
     pixel_size_y: float
+    site_is_refined: bool = True
+    site_alignment_status: str = "Pending"
     tested: bool = False
     test_timestamp: Optional[str] = None
     test_notes: str = ""
@@ -33,7 +35,7 @@ def extract_site_number(filename: str) -> int:
         return int(match.group(1))
     return 0
 
-def extract_all_particles(sample: Sample) -> Dict[str, ParticleGlobalInfo]:
+def extract_all_particles(sample: Sample, reg_w: int = 2048, reg_h: int = 2048) -> Dict[str, ParticleGlobalInfo]:
     """
     Extracts all measured particles across all sites in the sample,
     computing their absolute physical coordinates on the flat sample plane
@@ -52,9 +54,9 @@ def extract_all_particles(sample: Sample) -> Dict[str, ParticleGlobalInfo]:
     px_reg = float(meta_reg.get('PixelSizeX', 1.0))
     py_reg = float(meta_reg.get('PixelSizeY', 1.0))
     
-    # Overview center in physical units
-    cx_reg = 2048 * px_reg / 2.0
-    cy_reg = 2048 * py_reg / 2.0
+    # Overview center in physical units based on actual region image dimensions
+    cx_reg = reg_w * px_reg / 2.0
+    cy_reg = reg_h * py_reg / 2.0
 
     for site in sample.images:
         if site.classification != ImageType.SITE or not site.particles:
@@ -76,6 +78,10 @@ def extract_all_particles(sample: Sample) -> Dict[str, ParticleGlobalInfo]:
         site_top_left_x = cx_reg - dx - site_w / 2.0 + off_x * px_site
         site_top_left_y = cy_reg + dy - site_h / 2.0 + off_y * py_site
 
+        align_stat = getattr(site, 'alignment_status', 'Pending')
+        use_refined = getattr(site, 'use_refined_alignment', True)
+        is_refined = use_refined and (align_stat.startswith("Refined") or align_stat == "Manual")
+
         for p in site.particles:
             part_x_m = site_top_left_x + p.pixel_x * px_site
             part_y_m = site_top_left_y + p.pixel_y * py_site
@@ -94,7 +100,9 @@ def extract_all_particles(sample: Sample) -> Dict[str, ParticleGlobalInfo]:
                 site_top_left_x_m=site_top_left_x,
                 site_top_left_y_m=site_top_left_y,
                 pixel_size_x=px_site,
-                pixel_size_y=py_site
+                pixel_size_y=py_site,
+                site_is_refined=is_refined,
+                site_alignment_status=align_stat
             )
             result[uid] = info
 
