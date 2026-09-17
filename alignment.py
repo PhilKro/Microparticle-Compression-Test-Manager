@@ -111,19 +111,17 @@ class AlignmentWorker(QRunnable):
     @Slot()
     def run(self):
         try:
-            site_img = tifffile.imread(self.site_path)
+            from main import read_sem_tiff
+            site_img = read_sem_tiff(self.site_path)
             
             # Extract main signal if multi-signal
             meta_main_site = self.site_record.metadata.get('MAIN', {})
             n_sig = int(meta_main_site.get('ViewFieldsCountX', 1))
             strip = int(meta_main_site.get('ImageStripSize', 0))
-            if strip > 0:
+            if strip > 0 and site_img.shape[0] > strip:
                 site_img = site_img[:-strip, :]
             
-            if site_img.ndim == 3:
-                site_img = site_img[:, :site_img.shape[1] // n_sig, :]
-            else:
-                site_img = site_img[:, :site_img.shape[1] // n_sig]
+            site_img = site_img[:, :site_img.shape[1] // n_sig]
             
             site_px = float(meta_main_site.get('PixelSizeX', 1.0))
             site_py = float(meta_main_site.get('PixelSizeY', 1.0))

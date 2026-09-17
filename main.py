@@ -36,6 +36,38 @@ from roi import (
     create_roi_for_particle, compute_facet_parameters, compute_facet_parameters_ellipse
 )
 import scipy.ndimage as ndimage
+import cv2
+
+def read_sem_tiff(filepath: str) -> np.ndarray:
+    """
+    Safely reads a SEM TIFF file, converting:
+    - Standard 2D grayscale arrays (H, W) -> unchanged
+    - 3D RGB / RGBA arrays (H, W, 3) or (H, W, 4) -> 2D luminance grayscale
+    - 3D multi-page / series arrays (pages, H, W) -> 2D page 0
+    - Higher dimensions or singleton dimensions -> squeezed to 2D
+    Returns a 2D numpy array (H, W).
+    """
+    img = tifffile.imread(filepath)
+    if img is None:
+        raise ValueError(f"Failed to load image from {filepath}")
+    img = np.squeeze(img)
+    if img.ndim == 2:
+        return img
+    if img.ndim == 3:
+        if img.shape[2] in (3, 4):
+            if np.array_equal(img[..., 0], img[..., 1]):
+                return img[..., 0]
+            else:
+                rgb = img[..., :3].astype(float)
+                gray = 0.2989 * rgb[..., 0] + 0.5870 * rgb[..., 1] + 0.1140 * rgb[..., 2]
+                return np.round(gray).astype(img.dtype)
+        elif img.shape[0] < img.shape[1] and img.shape[0] < img.shape[2]:
+            return img[0]
+        else:
+            return img[:, :, 0]
+    while img.ndim > 2:
+        img = img[0]
+    return img
 
 def calculate_scale_size(view_w: float) -> float:
     if view_w <= 0:
@@ -346,27 +378,47 @@ class AppController:
                 tif2 = os.path.join(self.sample_dir, region_post.filename)
                 
                 if os.path.exists(tif1) and os.path.exists(tif2):
-                    img1 = tifffile.imread(tif1)
-                    img2 = tifffile.imread(tif2)
+                    img1 = read_sem_tiff(tif1)
+                    img2 = read_sem_tiff(tif2)
                     
-                    # Take first signal if multi-signal
-                    n_sig1 = int(region.metadata.get('MAIN', {}).get('ViewFieldsCountX', 1))
-                    n_sig2 = int(region_post.metadata.get('MAIN', {}).get('ViewFieldsCountX', 1))
+                    meta1 = region.metadata.get('MAIN', {})
+                    meta2 = region_post.metadata.get('MAIN', {})
+                    
+                    n_sig1 = int(meta1.get('ViewFieldsCountX', 1))
+                    n_sig2 = int(meta2.get('ViewFieldsCountX', 1))
+                    strip1 = int(meta1.get('ImageStripSize', 0))
+                    strip2 = int(meta2.get('ImageStripSize', 0))
+                    
+                    # Strip data bars
+                    if strip1 > 0 and img1.shape[0] > strip1:
+                        img1 = img1[:-strip1, :]
+                    if strip2 > 0 and img2.shape[0] > strip2:
+                        img2 = img2[:-strip2, :]
                     
                     w1 = img1.shape[1] // n_sig1
                     w2 = img2.shape[1] // n_sig2
                     
+                    # Extract primary detector signal
                     img1 = img1[:, :w1]
                     img2 = img2[:, :w2]
                     
+                    px1 = float(meta1.get('PixelSizeX', 0.0))
+                    py1 = float(meta1.get('PixelSizeY', 0.0))
+                    px2 = float(meta2.get('PixelSizeX', 0.0))
+                    py2 = float(meta2.get('PixelSizeY', 0.0))
+                    
+                    ref_px = px2 if px2 > 0 else px1
+                    ref_py = py2 if py2 > 0 else py1
+                    
+                    # If resolutions differ (e.g. 1024x1024 vs 2048x2048), resample img1 to img2 grid
+                    if img1.shape != img2.shape:
+                        img1 = cv2.resize(img1, (img2.shape[1], img2.shape[0]), interpolation=cv2.INTER_LINEAR)
+                    
                     shift, error, diffphase = phase_cross_correlation(img1, img2, upsample_factor=10)
                     
-                    px = float(region.metadata.get('MAIN', {}).get('PixelSizeX', 0.0))
-                    py = float(region.metadata.get('MAIN', {}).get('PixelSizeY', 0.0))
-                    
-                    # shift is [y, x] in pixels
-                    self.sample.hysteresis_error_y = shift[0] * py
-                    self.sample.hysteresis_error_x = shift[1] * px
+                    # shift is [y, x] in img2 pixels
+                    self.sample.hysteresis_error_y = shift[0] * ref_py
+                    self.sample.hysteresis_error_x = shift[1] * ref_px
                     print(f"Estimated Hysteresis Error: X={self.sample.hysteresis_error_x:.2e} m, Y={self.sample.hysteresis_error_y:.2e} m")
             except ImportError:
                 print("scikit-image not installed for hysteresis check.")
@@ -493,7 +545,7 @@ class AppController:
         tif_path = os.path.join(self.sample_dir, region.filename)
         if os.path.exists(tif_path):
             try:
-                img = tifffile.imread(tif_path)
+                img = read_sem_tiff(tif_path)
                 
                 meta_main = region.metadata.get('MAIN', {})
                 meta_sem = region.metadata.get('SEM', {})
@@ -503,7 +555,7 @@ class AppController:
                 px = float(meta_main.get('PixelSizeX', 1.0))
                 py = float(meta_main.get('PixelSizeY', 1.0))
                 
-                if strip_size > 0:
+                if strip_size > 0 and img.shape[0] > strip_size:
                     img = img[:-strip_size, :]
                 
                 H, W = img.shape
@@ -708,7 +760,7 @@ class AppController:
         tif_path = os.path.join(self.sample_dir, site.filename)
         if os.path.exists(tif_path):
             try:
-                img = tifffile.imread(tif_path)
+                img = read_sem_tiff(tif_path)
                 
                 meta_main = site.metadata.get('MAIN', {})
                 meta_sem = site.metadata.get('SEM', {})
@@ -718,7 +770,7 @@ class AppController:
                 px = float(meta_main.get('PixelSizeX', 1.0))
                 py = float(meta_main.get('PixelSizeY', 1.0))
                 
-                if strip_size > 0:
+                if strip_size > 0 and img.shape[0] > strip_size:
                     img = img[:-strip_size, :]
                 
                 H, W = img.shape
@@ -841,21 +893,18 @@ class AppController:
         if not os.path.exists(tif_path): return
         
         from alignment import align_site_to_region
-        import tifffile
         import numpy as np
         
-        img = tifffile.imread(tif_path)
+        img = read_sem_tiff(tif_path)
         meta_main = region.metadata.get('MAIN', {})
         n_sig = int(meta_main.get('ViewFieldsCountX', 1))
         strip = int(meta_main.get('ImageStripSize', 0))
         
         def get_signal(image, n, strip_sz, sig_idx):
-            if strip_sz > 0: image = image[:-strip_sz, :]
+            if strip_sz > 0 and image.shape[0] > strip_sz:
+                image = image[:-strip_sz, :]
             w = image.shape[1] // n
-            if image.ndim == 3:
-                return image[:, sig_idx*w : (sig_idx+1)*w, :]
-            else:
-                return image[:, sig_idx*w : (sig_idx+1)*w]
+            return image[:, sig_idx*w : (sig_idx+1)*w]
                 
         img1 = get_signal(img, n_sig, strip, 0)
         img2 = get_signal(img, n_sig, strip, 1) if n_sig > 1 else None
@@ -882,7 +931,7 @@ class AppController:
             
             try:
                 site_path = os.path.join(self.sample_dir, site.filename)
-                site_img = tifffile.imread(site_path)
+                site_img = read_sem_tiff(site_path)
                 meta_main_site = site.metadata.get('MAIN', {})
                 n_sig_site = int(meta_main_site.get('ViewFieldsCountX', 1))
                 strip_site = int(meta_main_site.get('ImageStripSize', 0))
@@ -1233,9 +1282,8 @@ class AppController:
         # Always extract the SE detector channel (never BSE)
         tif_path = os.path.join(self.sample_dir, region.filename)
         if os.path.exists(tif_path):
-            import tifffile
-            img = tifffile.imread(tif_path)
-            if strip > 0:
+            img = read_sem_tiff(tif_path)
+            if strip > 0 and img.shape[0] > strip:
                 img = img[:-strip, :]
             w = img.shape[1] // n_sig
             se_idx = 0
@@ -1370,8 +1418,7 @@ class AppController:
         if not os.path.exists(tif_path):
             return
 
-        import tifffile
-        img = tifffile.imread(tif_path)
+        img = read_sem_tiff(tif_path)
         meta_main = site_record.metadata.get('MAIN', {})
         meta_sem = site_record.metadata.get('SEM', {})
         n_sig = int(meta_main.get('ViewFieldsCountX', 1))
@@ -1379,7 +1426,7 @@ class AppController:
         px = float(meta_main.get('PixelSizeX', 1.0))
         py = float(meta_main.get('PixelSizeY', 1.0))
 
-        if strip > 0:
+        if strip > 0 and img.shape[0] > strip:
             img = img[:-strip, :]
         H, W = img.shape[:2]
         w = W // n_sig
@@ -2251,16 +2298,40 @@ class AppController:
         se_idx = None
         bse_idx = None
         n = len(self.current_site_signals) if hasattr(self, 'current_site_signals') else 0
+        
+        # Step 1: Detect explicit detectors
         for i in range(n):
             det_name = meta_sem.get(f'Detector{i}', '').upper()
             if 'BSE' in det_name:
                 bse_idx = i
-            elif 'SE' in det_name:
+            elif 'IN-BEAM SE' in det_name or 'INBEAM SE' in det_name:
                 se_idx = i
-        if se_idx is None and n > 0:
-            se_idx = 0
-        if bse_idx is None and n > 1:
-            bse_idx = 1
+            elif 'SE' in det_name and se_idx is None:
+                se_idx = i
+
+        # Step 2: Handle cases with 2 or more signals
+        if n >= 2:
+            if se_idx is not None and bse_idx is None:
+                # If only SE / In-Beam SE was specified, use the other signal for BSE/boundary
+                bse_idx = 1 if se_idx == 0 else 0
+            elif bse_idx is not None and se_idx is None:
+                se_idx = 1 if bse_idx == 0 else 0
+            elif se_idx is None and bse_idx is None:
+                se_idx = 0
+                bse_idx = 1
+            elif se_idx == bse_idx:
+                # Disambiguate if both mapped to the same index
+                if se_idx == 1:
+                    bse_idx = 0
+                else:
+                    bse_idx = 1
+        else:
+            # Single-image fallback
+            if se_idx is None and n > 0:
+                se_idx = 0
+            if bse_idx is None and n > 0:
+                bse_idx = 0
+
         return se_idx, bse_idx
 
     def on_measure_particle_combined(self):
