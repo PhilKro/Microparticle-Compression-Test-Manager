@@ -1,0 +1,96 @@
+{
+  "app_title": "Microparticle Compression Test Manager",
+  "version": "1.0",
+  "summary": "Dual-signal (BSE + SE) automated particle recognition, crystallographic facet fitting, and in-situ micro-compression stage navigation.",
+  "sections": [
+    {
+      "title": "1. Image Navigation & Viewer",
+      "items": [
+        {"action": "Pan view", "shortcut": "Left-click drag on background", "description": "Moves the image viewport."},
+        {"action": "Zoom in / out", "shortcut": "Mouse wheel", "description": "Zooms into or out of the cursor location."},
+        {"action": "Reset view", "shortcut": "Right-click -> View All", "description": "Auto-ranges view to fit image bounds."},
+        {"action": "Switch signal", "shortcut": "SE / BSE tabs", "description": "Toggles between Secondary Electron (SE) and Backscattered Electron (BSE) signals."}
+      ]
+    },
+    {
+      "title": "2. Site Alignment (Overview Tab)",
+      "items": [
+        {"action": "Auto-align sites", "shortcut": "Button: 'Refine Site Alignment'", "description": "Runs multi-scale FFT cross-correlation to align all site images to the region overview."},
+        {"action": "Manual site adjustment", "shortcut": "Drag red site rectangle", "description": "Drag any site box on the overview image to manually adjust its stage offset."},
+        {"action": "Undo alignment drag", "shortcut": "Ctrl+Z", "description": "Reverts the last manual site rectangle repositioning."},
+        {"action": "Open site in analysis", "shortcut": "Double-click in tree / Dropdown", "description": "Switches to Site Analysis tab and displays the selected site."}
+      ]
+    },
+    {
+      "title": "3. Particle Measurement Workflow (Site Analysis Tab)",
+      "items": [
+        {"action": "Pick particle center", "shortcut": "Left-click particle", "description": "Places a red crosshair marker at the particle location."},
+        {"action": "Outer search radius", "shortcut": "Slider (0.5 – 10.0 µm)", "description": "Sets the maximum bounding radius for outer particle recognition on BSE."},
+        {"action": "Select facet shape", "shortcut": "Facet Shape slider (0 to 6)", "description": "Chooses the top facet geometry before fitting (Hexagon, Triangle, Quad, Pentagon, 6-gon, 8-gon, Ellipse)."},
+        {"action": "Measure particle (BSE + SE)", "shortcut": "Spacebar or M", "description": "Fits outer boundary ellipse on BSE, auto-centers, and fits the chosen facet shape on SE."},
+        {"action": "Measure outer boundary only", "shortcut": "Button: 'Outer ECD only (BSE)'", "description": "Measures equivalent circular diameter on BSE signal without facet fitting."},
+        {"action": "Measure top facet only", "shortcut": "Button: 'Facet only (SE)'", "description": "Fits facet shape on SE using current center coordinates."},
+        {"action": "Next Site", "shortcut": "Button: 'Next Site ➔'", "description": "Advances sequentially to the next site in the dropdown and displays its particles."},
+        {"action": "Delete particle", "shortcut": "Delete key", "description": "Deletes selected particle row and removes its overlays."}
+      ]
+    },
+    {
+      "title": "4. Facet Shape Modes (Slider 0 to 6)",
+      "items": [
+        {"action": "0: Hexagon (Cryst 6-gon)", "shortcut": "Default", "description": "Equiangular crystallographic hexagon with strictly locked 120.0° internal angles."},
+        {"action": "1: Triangle (3-gon)", "shortcut": "Slider pos 1", "description": "3-sided polygon for octahedral and tetrahedral {111} facets."},
+        {"action": "2: Quadrilateral (4-gon)", "shortcut": "Slider pos 2", "description": "4-sided polygon for cubic {100}, tetragonal, or trapezoidal facets."},
+        {"action": "3: Pentagon (5-gon)", "shortcut": "Slider pos 3", "description": "5-sided polygon for decahedral nanoparticle twins and pyritohedral {210} facets."},
+        {"action": "4: General 6-gon", "shortcut": "Slider pos 4", "description": "6-sided polygon with freely adjustable, unconstrained vertex angles."},
+        {"action": "5: General 8-gon", "shortcut": "Slider pos 5", "description": "8-sided polygon for truncated cuboctahedra and {100}+{110} facet projections."},
+        {"action": "6: Ellipse / Circle", "shortcut": "Slider pos 6", "description": "Curvilinear facet model with independent major/minor semi-axes and rotation."}
+      ]
+    },
+    {
+      "title": "5. Manual Fine-Fitting Controls",
+      "items": [
+        {"action": "Hexagon: Scale & Rotate", "shortcut": "Normal drag on corner", "description": "Scales and rotates the entire hexagon self-similarly around its geometric center (all 120° angles preserved)."},
+        {"action": "Hexagon: Extend Corner", "shortcut": "Shift + Drag corner", "description": "Slides the dragged corner and its 2 adjacent vertices along the second-next edge directions (120° locked)."},
+        {"action": "Hexagon: Shorten / Lengthen Edge", "shortcut": "Shift + Drag edge", "description": "Slides the 2 endpoints strictly along adjacent edge rays, shortening or lengthening that edge (120° locked)."},
+        {"action": "Hexagon: Move", "shortcut": "Normal drag on body", "description": "Translates the entire hexagon across the particle surface."},
+        {"action": "General Polygons: Move Corner", "shortcut": "Drag any corner handle", "description": "Moves only the dragged corner freely; all other corners remain strictly stationary."},
+        {"action": "General Polygons: Move", "shortcut": "Normal drag on body", "description": "Translates the entire polygon without altering vertex relative coordinates."},
+        {"action": "Ellipse: Resize Major Axis", "shortcut": "Drag right handle (axis_x)", "description": "Scales the semi-major axis length."},
+        {"action": "Ellipse: Resize Minor Axis", "shortcut": "Drag top handle (axis_y)", "description": "Scales the semi-minor axis length."},
+        {"action": "Ellipse: Rotate", "shortcut": "Drag top-right handle (rotate)", "description": "Rotates ellipse orientation angle."},
+        {"action": "Ellipse: Move", "shortcut": "Normal drag on body", "description": "Translates the ellipse across the particle."}
+      ]
+    },
+    {
+      "title": "6. Keyboard Shortcuts",
+      "items": [
+        {"action": "Measure Particle (BSE + SE)", "shortcut": "Space or M", "description": "1-click combined outer particle + facet recognition."},
+        {"action": "Two-Mode Test / Advance", "shortcut": "Enter / Return", "description": "Transitions between Ready for Test (Mode A) and Translation Guidance (Mode B), accepting stage moves and logging tests."},
+        {"action": "Delete Particle", "shortcut": "Delete", "description": "Removes selected particle measurement."},
+        {"action": "Save Session", "shortcut": "Ctrl+S", "description": "Saves session, particles, and facet parameters to sample_data.json."},
+        {"action": "Open Folder", "shortcut": "Ctrl+O", "description": "Opens sample directory."},
+        {"action": "Undo Alignment Drag", "shortcut": "Ctrl+Z", "description": "Reverts site position adjustment on region overview."},
+        {"action": "Help / Documentation", "shortcut": "F1", "description": "Opens this Help dialog."},
+        {"action": "Exit", "shortcut": "Ctrl+Q", "description": "Closes the application."}
+      ]
+    },
+    {
+      "title": "7. In-Situ Micro-Compression Testing (Tab 3)",
+      "items": [
+        {"action": "Two-Mode Testing Workflow", "shortcut": "Enter key", "description": "Toggles between Mode A (Ready for Test / Current Particle Confirmation) and Mode B (Stage Translation Guidance)."},
+        {"action": "Mode A: Confirm & Prepare", "shortcut": "View Mode A", "description": "Displays large Current Particle UID, live test status, SE site confirmation view, and remaining test queue."},
+        {"action": "Mode B: Stage Translation", "shortcut": "View Mode B", "description": "Shows Target Particle UID, target SE site preview with highlighted particle, and exact SmarAct ΔX, ΔY stage motion vector."},
+        {"action": "Commit Move & Log Test", "shortcut": "Enter key in Mode B", "description": "Accepts actual stage displacements, updates calibration, logs complete test record (ECD, facet, area, coordinates, timestamp) to JSON, and advances."},
+        {"action": "Shortest TSP Tour Optimization", "shortcut": "Auto / 'Set Selected as Current'", "description": "Setting a current particle automatically computes the shortest travel tour (Euclidean Nearest Neighbor) across all remaining particles and selects the next target."},
+        {"action": "Visual Tilt & Rotation Alignment", "shortcut": "Rotation slider / Spinbox", "description": "Compensates for 70° sample tilt and arbitrary mounting rotation to match SEM viewport orientation."},
+        {"action": "Robust Bayesian Calibration (RB-PSE)", "shortcut": "Continuous / Auto", "description": "Estimates stage rotation φ and scale s with analytical standard deviations (σ_φ, σ_s) and 1-hop RANSAC outlier rejection."},
+        {"action": "Calibration Confidence Badge", "shortcut": "Header Status", "description": "Displays continuous confidence percentage (⚡ Calibrated XX%) and switches to green once orientation is statistically certain."},
+        {"action": "Stage Scale Tuning", "shortcut": "Scale Spinbox (s)", "description": "Interactive stage scaling factor (µm/µm) that adapts future travel distance predictions based on observed piezo travel."},
+        {"action": "Axis Configuration", "shortcut": "Flip X/Y / Invert X / Invert Y", "description": "Instantly swaps or inverts piezo coordinate axes to match microscope stage wiring."},
+        {"action": "Particle Naming Convention", "shortcut": "Compact UID", "description": "Unique short IDs formatted as {Site}_{ParticleID} (e.g., 2_23, 22_3, 6_1) for unambiguous identification and rapid note-taking."},
+        {"action": "Persistent Session Logging", "shortcut": "Auto-saved JSON", "description": "Every test is recorded to compression_test_YYMMDDHH.json with full geometrical, positional, and calibration history for post-mortem analysis."}
+      ]
+    }
+  ]
+}
+

@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Experimental Datasets & Sample Folders (Excluded from Git)
+Region2/
+particle_samples/
+sam_weights/
+filter_maps_output/
+scratch/
+.tempmediaStorage/
+
+# Micrographs, Raw Sensor Data & Loose Images
+*.tif
+*.tiff
+*.hdr
+*.png
+*.jpg
+*.jpeg
+*.bmp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Experimental Session Logs & Temporary Files
+compression_test_*.json
+*.bak
+*.swp
+*.log
+prompt.txt
+
+# Environments & IDEs
+.venv/
+env/
+venv/
+.idea/
+.vscode/
