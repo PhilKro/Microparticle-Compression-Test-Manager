@@ -1033,15 +1033,20 @@ class AppController:
                 rotation_angle_deg=self.comp_rot_deg,
                 scale_factor=self.comp_scale
             )
-        self.window.lbl_comp_session_file.setText(self.comp_session_filename)
+            self.window.lbl_comp_session_file.setText(f"{self.comp_session_filename} (created on first test)")
 
     def save_compression_session(self):
         if not self.comp_session_data or not self.sample_dir:
             return
-        session_path = os.path.join(self.sample_dir, self.comp_session_filename)
+        # Only create/write the file if at least one test has been logged,
+        # or if the file already exists on disk from an earlier session
+        session_path = os.path.join(self.sample_dir, self.comp_session_filename) if self.comp_session_filename else ""
+        if not self.comp_session_data.tests and (not session_path or not os.path.exists(session_path)):
+            return
         try:
             with open(session_path, 'w', encoding='utf-8') as f:
                 f.write(self.comp_session_data.model_dump_json(indent=2))
+            self.window.lbl_comp_session_file.setText(self.comp_session_filename)
         except Exception as e:
             print(f"Error saving compression session: {e}")
 
@@ -1774,7 +1779,7 @@ class AppController:
         self.comp_cumulative_dx += act_dx
         self.comp_cumulative_dy += act_dy
 
-        if self.comp_session_data:
+        if self.comp_session_data and self.comp_session_data.tests:
             self.comp_session_data.last_updated_at = datetime.now().isoformat()
             self.comp_session_data.rotation_angle_deg = self.comp_rot_deg
             self.comp_session_data.scale_factor = self.comp_scale
@@ -2045,7 +2050,7 @@ class AppController:
                 QMessageBox.critical(self.window, "Error", f"Failed to save session:\n{e}")
 
     def on_close(self, event):
-        if self.comp_session_data:
+        if self.comp_session_data and self.comp_session_data.tests:
             try:
                 self.save_compression_session()
             except Exception:

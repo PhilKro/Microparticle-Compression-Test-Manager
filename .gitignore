@@ -26,6 +26,7 @@ desktop.ini
 
 # Experimental Session Logs & Temporary Files
 compression_test_*.json
+sample_data.json
 *.bak
 *.swp
 *.log

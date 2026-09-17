@@ -188,7 +188,10 @@ def test_full_ui_integration():
         curr_before = controller.comp_current_uid
         next_before = controller.comp_next_uid
         next_p = controller.comp_particles[next_before]
-        
+        # Ensure session file does NOT exist before first test is logged
+        session_file = os.path.join(temp_dir, controller.comp_session_filename)
+        assert not os.path.exists(session_file), "Session file should NOT exist prior to logging first test"
+
         # 1. First Enter press in Mode A (Testing Mode) -> Logs test and enters Mode B (Translation Mode)
         controller.on_comp_hotkey_enter()
         
